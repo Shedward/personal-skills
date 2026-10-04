@@ -6,16 +6,21 @@
 ## Установка
 
 ```sh
-git clone git@github.com:<user>/personal-skills.git ~/Projects/personal-skills
-claude plugin marketplace add ~/Projects/personal-skills
-claude plugin install my@personal-skills
+curl -fsSL https://raw.githubusercontent.com/Shedward/personal-skills/main/install.sh | sh
+```
+
+Скрипт клонирует репо в `~/Projects/personal-skills`, добавляет его как
+маркетплейс и ставит плагин. Другой путь — аргументом:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Shedward/personal-skills/main/install.sh | sh -s -- ~/code/personal-skills
 ```
 
 Маркетплейс добавлен из локальной папки, поэтому Claude Code читает скиллы
 прямо из клона: правка на месте действует со следующей сессии или после
 `/reload-plugins`.
 
-Только на чтение, без клона: `claude plugin marketplace add <user>/personal-skills`.
+Только на чтение, без клона: `claude plugin marketplace add Shedward/personal-skills`.
 
 ## Работа
 

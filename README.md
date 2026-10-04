@@ -1,23 +1,27 @@
 # personal-skills
 
-Личные скиллы Claude Code общего назначения.
+Личные скиллы Claude Code общего назначения. Репозиторий — маркетплейс с
+одним плагином `my`; скиллы вызываются как `/my:<name>`.
 
-## Установка на новой машине
+## Установка
 
 ```sh
 git clone git@github.com:<user>/personal-skills.git ~/Projects/personal-skills
-~/Projects/personal-skills/install.sh
+claude plugin marketplace add ~/Projects/personal-skills
+claude plugin install my@personal-skills
 ```
 
-`install.sh` линкует каждую папку `skills/<name>` в `~/.claude/skills/<name>`.
-Существующую копию заменяет, только если она совпадает с репо; отличающуюся
-пропускает (`-f` — заменить всё равно).
+Маркетплейс добавлен из локальной папки, поэтому Claude Code читает скиллы
+прямо из клона: правка на месте действует со следующей сессии или после
+`/reload-plugins`.
+
+Только на чтение, без клона: `claude plugin marketplace add <user>/personal-skills`.
 
 ## Работа
 
-- Скиллы правятся на месте: симлинк ведёт в рабочую копию репо.
-- `/skills-sync` — подтянуть обновления, прилинковать новые, забрать в репо
-  скиллы, созданные прямо в `~/.claude/skills`.
+- `/my:skills-sync` — подтянуть обновления, забрать в репо скиллы, созданные
+  прямо в `~/.claude/skills`, показать незакоммиченное.
+- Новый скилл — папка `skills/<name>/SKILL.md`.
 - Коммит и push — руками.
 
 ## Зависимости скиллов

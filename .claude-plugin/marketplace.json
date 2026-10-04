@@ -1,0 +1,14 @@
+{
+  "name": "personal-skills",
+  "description": "Личные скиллы Claude Code общего назначения",
+  "owner": {
+    "name": "v.maltsev"
+  },
+  "plugins": [
+    {
+      "name": "my",
+      "source": "./",
+      "description": "Критики, траблшутинг, карты подсистем, harvest и прочие личные скиллы"
+    }
+  ]
+}

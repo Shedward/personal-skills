@@ -1,6 +1,8 @@
 ---
 type: bug
 status: open
+effort: low
+impact: medium
 ---
 
 # Заголовок: что не так или чего хотим, одним предложением
@@ -16,3 +18,4 @@ status: open
 ## Changelog
 
 - Заведено: откуда взялось (сессия, заметка, ревью).
+- Оценено effort low (почему), impact medium (почему).

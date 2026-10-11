@@ -19,6 +19,7 @@ description: Use when отлаживаешь баг, строишь репро �
 | [clean-repro-project](tricks/clean-repro-project.md) | Нужно доказать границу бага (наш слой vs framework/OS), собрать минимальный репро для радара или экспериментировать без тяжёлой сборки |
 | [simulator-driving](tricks/simulator-driving.md) | Механика вождения симулятора агентом: UDID, install/launch/openurl/screenshot, авторизация, клавиатура, флаки-протокол — общий фундамент остальных трюков |
 | [video-frame-forensics](tricks/video-frame-forensics.md) | Есть видео-репро анимационного бага/мерцания/гонки отрисовки — разобрать покадрово через ffmpeg: кто анимирует, кто появляется мгновенно, когда случился рендер |
+| [red-before-fix](tricks/red-before-fix.md) | Тест и фикс сделаны вместе — доказать, что тест падает без фикса: патч исходников, откат, прогон, `git apply` |
 
 ## Как пользоваться
 

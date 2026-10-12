@@ -65,6 +65,18 @@
   Дальше `montage f044..f071 -tile 4x -geometry 442x269+4+4` — одна
   картинка на всплеск, читается одним Read; спорные 6 кадров — вторым
   монтажом в полном размере.
+- **Нет ffmpeg**: нарезка Swift-скриптом на `AVAssetImageGenerator` —
+  `swift frames.swift <video.mov> <outDir> <N>` даёт N равномерных кадров
+  (`requestedTimeToleranceBefore/After = .zero`,
+  `appliesPreferredTrackTransform = true`, `maximumSize` 400×900 для
+  экономии токенов, `NSBitmapImageRep → png`). Скелет: `AVURLAsset` →
+  `duration` → цикл `copyCGImage(at: CMTime(seconds:))`. Окно события
+  потом пере-нарезать тем же скриптом с бо́льшим N на суженном интервале
+  (аргументы start/dur). Кроп при нужде — `CGImage.cropping(to:)`.
+- **Сначала механика, потом кадры.** Если причинная цепочка уже известна
+  из кода (например, петля обратной связи между layout и анимируемым
+  значением), видео объясняется из механики; кадры нужны только для
+  спорного звена.
 
 ## Смежные трюки
 

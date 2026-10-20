@@ -1,14 +1,17 @@
-# python3 -I board.py <папка задач> <out.html> [группа] — канбан-доска задач для plannotator annotate.
-# С группой — доска группы, без — беклог и плашки открытых групп.
+# python3 -I board.py <папка задач> <out.html> [группа] [--open=<id>] — канбан-доска задач для plannotator annotate.
+# С группой — доска группы, без — беклог и плашки открытых групп. --open — сразу открыть задачу в панели.
 import html
 import pathlib
 import re
 import shutil
 import sys
 
-tasks_dir = pathlib.Path(sys.argv[1]).expanduser()
-out = pathlib.Path(sys.argv[2])
-group = sys.argv[3] if len(sys.argv) > 3 else None
+flags = [a for a in sys.argv[1:] if a.startswith("--")]
+args = [a for a in sys.argv[1:] if not a.startswith("--")]
+tasks_dir = pathlib.Path(args[0]).expanduser()
+out = pathlib.Path(args[1])
+group = args[2] if len(args) > 2 else None
+opened = next((f.split("=", 1)[1] for f in flags if f.startswith("--open=")), None)
 score = {"low": 1, "medium": 2, "high": 3}
 grade = {"effort": {"low": "good", "medium": "mid", "high": "bad"},
          "impact": {"low": "bad", "medium": "mid", "high": "good"}}
@@ -160,7 +163,7 @@ def markdown(text):
 
 def view(t):
     title = re.sub(r"`([^`]+)`", r"<code>\1</code>", html.escape(t["title"]))
-    return (f'<dialog class="view" id="view-{html.escape(t["id"])}">'
+    return (f'<dialog class="view" id="view-{html.escape(t["id"])}"{" open" if t["id"] == opened else ""}>'
             f'<div class="sheet"><form method="dialog"><button class="close" aria-label="Закрыть">×</button></form>'
             f'<h2>{title}</h2>{markdown(t["body"])}</div></dialog>')
 
@@ -301,4 +304,6 @@ document.addEventListener("keydown", e => e.key === "Escape" && closeViews());
 </script>
 </body></html>
 """)
+if opened and opened not in {t["id"] for t in tasks + closed}:
+    sys.exit(f"{opened}: нет на этой доске — укажи группу задачи")
 print(out)

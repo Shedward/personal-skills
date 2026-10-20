@@ -3,6 +3,7 @@
 import html
 import pathlib
 import re
+import shutil
 import sys
 
 tasks_dir = pathlib.Path(sys.argv[1]).expanduser()
@@ -11,6 +12,15 @@ group = sys.argv[3] if len(sys.argv) > 3 else None
 score = {"low": 1, "medium": 2, "high": 3}
 grade = {"effort": {"low": "good", "medium": "mid", "high": "bad"},
          "impact": {"low": "bad", "medium": "mid", "high": "good"}}
+
+
+def attach(image):
+    # Plannotator отдаёт странице файлы только из её папки — копируем вложения туда
+    assets = out.parent / "board-assets"
+    assets.mkdir(exist_ok=True)
+    if image.is_file():
+        shutil.copy2(image, assets / image.name)
+    return f"board-assets/{image.name}"
 
 
 def parse(path):
@@ -24,6 +34,7 @@ def parse(path):
             meta[key] = value or []
     meta["title"] = next((l[2:] for l in body.splitlines() if l.startswith("# ")), path.stem)
     meta["id"] = path.stem
+    meta["body"] = re.sub(r"(!\[[^\]]*\]\()([^)]+)\)", lambda m: m[1] + attach(path.parent / m[2]) + ")", body)
     effort, impact = score.get(meta.get("effort")), score.get(meta.get("impact"))
     meta["value"] = impact - effort if effort and impact else None
     return meta
@@ -81,18 +92,77 @@ def card(t):
     rows = [f'<div class="top"><span class="id" title="Нажми, чтобы скопировать" '
             f'onclick="navigator.clipboard.writeText(this.textContent)">{e(t["id"])}</span>'
             f'<span class="type tinted {e(t.get("type", ""))}">{e(t.get("type", "?"))}</span></div>',
-            f'<div class="title">{title}</div>']
+            f'<span class="title" onclick="openView(\'{e(t["id"])}\')">{title}</span>']
     if t.get("waiting-for"):
         rows.append(f'<div class="waiting tinted">Ждём: {e(t["waiting-for"])}</div>')
     if t.get("status") in ("done", "dropped"):
         rows.append(f'<div class="resolution tinted {e(t["status"])}">{e(t.get("resolution") or t["status"])}</div>')
-        return f'<div class="card closed">{"".join(rows)}</div>'
+        return f'<div class="card closed" id="{e(t["id"])}">{"".join(rows)}</div>'
     deps = [f'<a class="dep" href="#{e(d)}">{e(d)}</a>' if d in open_ids
             else f'<span class="dep elsewhere" title="в другой группе или беклоге">{e(d)}</span>'
             for d in t.get("depends-on") or [] if d in open_anywhere]
     rows.append(f'<div class="bottom">{worth(t)}'
                 f'{"<span class=deps>↳ " + " ".join(deps) + "</span>" if deps else ""}</div>')
     return f'<div class="card" id="{e(t["id"])}">{"".join(rows)}</div>'
+
+
+def inline(s):
+    s = html.escape(s)
+    s = re.sub(r"!\[([^\]]*)\]\(([^)]*)\)", r'<figure><img src="\2" alt="\1" loading="lazy"><figcaption>\1</figcaption></figure>', s)
+    s = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2" target="_blank">\1</a>', s)
+    s = re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
+    return re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
+
+
+# ponytail: минимальный markdown (заголовки, абзацы, плоские списки, код, картинки)
+def markdown(text):
+    out, para, items, code = [], [], [], None
+
+    def flush():
+        if para:
+            out.append(f"<p>{inline(' '.join(para))}</p>")
+            para.clear()
+        if items:
+            out.append("<ul>" + "".join(f"<li>{inline(i)}</li>" for i in items) + "</ul>")
+            items.clear()
+
+    for line in text.splitlines():
+        heading = re.match(r"(#+) (.*)", line)
+        item = re.match(r"\s*(?:[-*]|\d+\.) (.*)", line)
+        if line.startswith("```"):
+            if code is None:
+                flush()
+                code = []
+            else:
+                out.append(f"<pre><code>{html.escape(chr(10).join(code))}</code></pre>")
+                code = None
+        elif code is not None:
+            code.append(line)
+        elif heading:
+            flush()
+            if len(heading[1]) > 1:
+                out.append(f"<h{len(heading[1]) + 1}>{inline(heading[2])}</h{len(heading[1]) + 1}>")
+        elif item:
+            if para:
+                flush()
+            items.append(item[1])
+        elif items and line.startswith("  ") and line.strip():
+            items[-1] += " " + line.strip()
+        elif not line.strip():
+            flush()
+        else:
+            if items:
+                flush()
+            para.append(line.strip())
+    flush()
+    return "".join(out)
+
+
+def view(t):
+    title = re.sub(r"`([^`]+)`", r"<code>\1</code>", html.escape(t["title"]))
+    return (f'<dialog class="view" id="view-{html.escape(t["id"])}">'
+            f'<div class="sheet"><form method="dialog"><button class="close" aria-label="Закрыть">×</button></form>'
+            f'<h2>{title}</h2>{markdown(t["body"])}</div></dialog>')
 
 
 def column(title, items, folded=False):
@@ -111,7 +181,9 @@ board = ("".join(column(s, by_value(s)) for s in ("open", "in-progress", "waitin
          + column("closed", closed, folded=True))
 hover_rules = "\n".join(
     f'.board:has(a.dep[href="#{i}"]:hover) [id="{i}"] {{ outline: 2px solid var(--ring); outline-offset: 2px; }}'
-    for i in sorted(open_ids))
+    for i in sorted(open_ids)) + "\n" + "\n".join(
+    f'.layout:has([id="view-{t["id"]}"][open]) [id="{t["id"]}"] {{ border-color: var(--ring); }}'
+    for t in tasks + closed)
 project = html.escape(tasks_dir.parent.name)
 heading = f"{html.escape(group)} — {project}" if group else f"Беклог — {project}"
 
@@ -148,7 +220,7 @@ out.write_text(f"""<!doctype html>
 * {{ box-sizing: border-box; }}
 body {{ font: 14px/1.4 var(--font-sans); background: var(--background); color: var(--foreground); margin: 0; padding: 32px; -webkit-font-smoothing: antialiased; }}
 h1 {{ font-size: 22px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 24px; }}
-.board {{ display: flex; gap: 16px; align-items: flex-start; }}
+.board {{ flex: 1; min-width: 0; overflow-x: auto; display: flex; gap: 16px; align-items: flex-start; }}
 .column {{ flex: 1; background: color-mix(in oklch, var(--muted) 45%, var(--background)); border: 1px solid color-mix(in oklch, var(--border) 60%, transparent); border-radius: calc(var(--radius) + 4px); padding: 12px; min-width: 260px; }}
 .column h2 {{ display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-foreground); margin: 2px 4px 14px; white-space: nowrap; }}
 .count {{ min-width: 18px; padding: 0 6px; border-radius: 999px; background: var(--muted); font-size: 11px; line-height: 18px; text-align: center; letter-spacing: 0; }}
@@ -168,7 +240,8 @@ h1 {{ font-size: 22px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 24p
 .top {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 6px; }}
 .id {{ font: 10px/16px var(--font-mono); color: color-mix(in oklch, var(--muted-foreground) 80%, transparent); cursor: copy; user-select: all; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
 .id:hover {{ color: var(--primary); }}
-.title {{ font-weight: 600; line-height: 1.35; letter-spacing: -.005em; }}
+.title {{ display: block; font-weight: 600; line-height: 1.35; letter-spacing: -.005em; cursor: pointer; }}
+.title:hover {{ text-decoration: underline; text-decoration-color: color-mix(in oklab, var(--foreground) 35%, transparent); text-underline-offset: 3px; }}
 .title code {{ font: 12.5px var(--font-mono); padding: 0 3px; border-radius: 4px; background: var(--muted); }}
 .type {{ flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 500; line-height: 18px; padding: 0 8px 0 7px; border-radius: 999px; }}
 .type::before {{ content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .85; }}
@@ -198,11 +271,34 @@ h1 {{ font-size: 22px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 24p
 .group-name {{ font: 500 12px var(--font-mono); }}
 .group-count {{ color: var(--muted-foreground); }}
 .ready {{ --tone: var(--success); padding: 0 8px; border-radius: 999px; font-size: 11px; line-height: 18px; }}
+.layout {{ display: flex; gap: 16px; align-items: flex-start; }}
+.view {{ position: sticky; top: 16px; flex: 0 0 min(520px, 42vw); margin: 0; padding: 0; border: 1px solid var(--border); border-radius: calc(var(--radius) + 4px); background: var(--card); color: var(--foreground); box-shadow: 0 8px 32px rgb(0 0 0 / .18); }}
+.sheet {{ padding: 28px 32px 32px; line-height: 1.6; }}
+.sheet h2 {{ font-size: 18px; line-height: 1.35; letter-spacing: -.01em; margin: 0 32px 16px 0; }}
+.sheet h3 {{ font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-foreground); margin: 28px 0 8px; }}
+.sheet h4 {{ font-size: 14px; margin: 20px 0 6px; }}
+.sheet p {{ margin: 0 0 12px; }}
+.sheet ul {{ margin: 0 0 12px; padding-left: 20px; }}
+.sheet li + li {{ margin-top: 6px; }}
+.sheet code {{ font: 12.5px var(--font-mono); padding: 1px 4px; border-radius: 4px; background: var(--muted); }}
+.sheet pre {{ margin: 0 0 12px; padding: 12px 14px; border-radius: 8px; background: var(--muted); overflow: auto; }}
+.sheet pre code {{ padding: 0; background: none; }}
+.sheet a {{ color: var(--primary); }}
+.sheet figure {{ margin: 8px 0 16px; }}
+.sheet img {{ display: block; max-width: 100%; max-height: 60vh; border: 1px solid var(--border); border-radius: 8px; }}
+.sheet figcaption {{ margin-top: 6px; font-size: 12px; color: var(--muted-foreground); }}
+.close {{ float: right; margin: -10px -14px 0 0; width: 32px; height: 32px; border: 0; border-radius: 8px; background: none; color: var(--muted-foreground); font-size: 20px; cursor: pointer; }}
+.close:hover {{ background: var(--muted); color: var(--foreground); }}
 {hover_rules}
 </style></head><body>
 <h1>{heading}</h1>
 {groups_strip}
-<div class="board">{board}</div>
+<div class="layout"><div class="board">{board}</div>{"".join(map(view, tasks + closed))}</div>
+<script>
+const closeViews = () => document.querySelectorAll(".view[open]").forEach(d => d.close());
+function openView(id) {{ closeViews(); document.getElementById("view-" + id).show(); }}
+document.addEventListener("keydown", e => e.key === "Escape" && closeViews());
+</script>
 </body></html>
 """)
 print(out)

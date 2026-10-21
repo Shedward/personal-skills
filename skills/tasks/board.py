@@ -257,7 +257,7 @@ h1 {{ font-size: 22px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 24p
 .title {{ display: block; font-weight: 600; line-height: 1.35; letter-spacing: -.005em; cursor: pointer; }}
 .title:hover {{ text-decoration: underline; text-decoration-color: color-mix(in oklab, var(--foreground) 35%, transparent); text-underline-offset: 3px; }}
 .title code {{ font: 12.5px var(--font-mono); padding: 0 3px; border-radius: 4px; background: var(--muted); }}
-.type {{ flex: none; font-size: 10.5px; font-weight: 500; line-height: 18px; padding: 0 8px; border-radius: 999px; }}
+.type {{ flex: none; font-size: 8.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; line-height: 14px; padding: 0 6px; border-radius: 999px; }}
 .waiting, .resolution {{ margin-top: 10px; font-size: 12px; line-height: 1.45; padding: 6px 10px; border-radius: 6px; }}
 .resolution.done::before {{ content: "✓ "; }}
 .resolution.dropped::before {{ content: "✕ "; }}

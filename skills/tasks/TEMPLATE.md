@@ -1,7 +1,6 @@
 ---
 type: fix
 status: open
-needs: [agent]
 effort: low
 impact: medium
 ---

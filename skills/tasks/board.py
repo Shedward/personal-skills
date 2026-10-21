@@ -93,6 +93,11 @@ def worth(t):
 telegram_hues = (25, 60, 300, 145, 200, 255, 350)
 
 
+def blocker(t):
+    actor, _, need = str(t.get("next") or "").partition(":")
+    return actor.strip(), need.strip()
+
+
 def card(t):
     e = html.escape
     title = re.sub(r"`([^`]+)`", r"<code>\1</code>", e(t["title"]))
@@ -100,19 +105,20 @@ def card(t):
             f'onclick="navigator.clipboard.writeText(this.textContent)">{e(t["id"])}</span>'
             f'<span class="type tinted {e(t.get("type", ""))}">{e(t.get("type", "?"))}</span></div>',
             f'<span class="title" onclick="openView(\'{e(t["id"])}\')">{title}</span>']
-    if t.get("waiting-for"):
-        rows.append(f'<div class="waiting tinted">Ждём: {e(t["waiting-for"])}</div>')
     if t.get("status") in ("done", "dropped"):
         rows.append(f'<div class="resolution tinted {e(t["status"])}">{e(t.get("resolution") or t["status"])}</div>')
         return f'<div class="card closed" id="{e(t["id"])}">{"".join(rows)}</div>'
     deps = [f'<a class="dep" href="#{e(d)}">{e(d)}</a>' if d in open_ids
             else f'<span class="dep elsewhere" title="в другой группе или беклоге">{e(d)}</span>'
             for d in t.get("depends-on") or [] if d in open_anywhere]
-    needs = [n.strip() for n in str(t.get("needs") or "").strip("[]").split(",") if n.strip()]
-    avatars = "".join(
-        f'<span class="avatar" title="{e(n)}" style="--hue: {telegram_hues[zlib.crc32(n.encode()) % len(telegram_hues)]}">'
-        f'{e("".join(w[0] for w in n.split("-")[:2]) if "-" in n else n[:2]).upper()}</span>'
-        for n in needs)
+    actor, need = blocker(t)
+    mover = actor or "agent"
+    hue = f'style="--hue: {telegram_hues[zlib.crc32(mover.encode()) % len(telegram_hues)]}"'
+    if actor:
+        rows.append(f'<div class="blocker tinted" {hue}>{labels.get(actor) or "Ждём " + e(actor)}: {e(need)}</div>')
+    avatars = (f'<span class="avatar" title="{e(mover)}" {hue}>'
+               f'{e("".join(w[0] for w in mover.split("-")[:2]) if "-" in mover else mover[:2]).upper()}</span>'
+               if t.get("status") == "in-progress" else "")
     if deps:
         rows.append(f'<div class="deps">{"".join(f"<span>↳ {d}</span>" for d in deps)}</div>')
     rows.append(f'<div class="bottom">{worth(t)}'
@@ -185,8 +191,15 @@ def column(title, items, folded=False):
             f'<div class="cards">{"".join(map(card, items))}</div></section>')
 
 
+labels = {"user": "От тебя", "agent": "Агент"}
+
+
+def lane(t):
+    return "waiting" if blocker(t)[0] not in ("", *labels) else t.get("status")
+
+
 def by_value(status):
-    return sorted((t for t in tasks if t.get("status") == status),
+    return sorted((t for t in tasks if lane(t) == status),
                   key=lambda t: (-(t["value"] if t["value"] is not None else -9),
                                  score.get(t.get("effort"), 9), t["id"]))
 
@@ -258,11 +271,12 @@ h1 {{ font-size: 22px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 24p
 .title:hover {{ text-decoration: underline; text-decoration-color: color-mix(in oklab, var(--foreground) 35%, transparent); text-underline-offset: 3px; }}
 .title code {{ font: 12.5px var(--font-mono); padding: 0 3px; border-radius: 4px; background: var(--muted); }}
 .type {{ flex: none; font-size: 8.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; line-height: 14px; padding: 0 6px; border-radius: 999px; }}
-.waiting, .resolution {{ margin-top: 10px; font-size: 12px; line-height: 1.45; padding: 6px 10px; border-radius: 6px; }}
+.blocker, .resolution {{ margin-top: 10px; font-size: 12px; line-height: 1.45; padding: 6px 10px; border-radius: 6px; }}
+.blocker {{ --tone: oklch(64% .14 var(--hue)); border-radius: 11px; }}
 .resolution.done::before {{ content: "✓ "; }}
 .resolution.dropped::before {{ content: "✕ "; }}
 .good, .resolution.done {{ --tone: var(--success); }}
-.mid, .waiting {{ --tone: var(--warning); --hue-shift: -15; }}
+.mid {{ --tone: var(--warning); --hue-shift: -15; }}
 .bad, .type.fix {{ --tone: var(--destructive); }}
 .type.decide {{ --tone: var(--primary); }}
 .type.check {{ --tone: var(--success); --hue-shift: 60; }}
@@ -272,7 +286,7 @@ h1 {{ font-size: 22px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 24p
 .tinted {{ background: color-mix(in oklab, var(--norm) 16%, var(--card)); color: color-mix(in oklab, var(--norm) 65%, var(--foreground)); }}
 .bottom {{ display: flex; align-items: center; gap: 10px; margin-top: 12px; }}
 .worth {{ flex: none; display: inline-flex; align-items: center; cursor: help; }}
-.chevron {{ fill: none; stroke: var(--on-solid); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; border-radius: 3px; margin-right: 4px; }}
+.chevron {{ fill: none; stroke: var(--on-solid); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; border-radius: 3px; margin-right: 2px; }}
 .cell {{ width: 20px; height: 16px; font: 600 10px/16px var(--font-mono); color: var(--on-solid); text-align: center; }}
 .cell.effort {{ clip-path: polygon(0 0, calc(100% - 5px) 0, 100% 50%, calc(100% - 5px) 100%, 0 100%); border-radius: 3px 0 0 3px; padding-right: 5px; }}
 .cell.impact {{ clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 5px 50%); border-radius: 0 3px 3px 0; padding-left: 5px; margin-left: -3.5px; }}

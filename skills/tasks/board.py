@@ -327,8 +327,8 @@ h1 {{ font-size: 22px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 24p
 .sheet figcaption {{ margin-top: 6px; font-size: 12px; color: var(--muted-foreground); }}
 .close {{ float: right; margin: -10px -14px 0 0; width: 32px; height: 32px; border: 0; border-radius: 8px; background: none; color: var(--muted-foreground); font-size: 20px; cursor: pointer; }}
 .close:hover {{ background: var(--muted); color: var(--foreground); }}
-.general {{ position: fixed; left: 16px; bottom: 16px; z-index: 10; padding: 8px 14px; border-radius: 999px; background: var(--card); border: 1px solid var(--border); box-shadow: 0 4px 16px rgb(0 0 0 / .15); font-size: 13px; cursor: pointer; }}
-.general::after {{ content: "Паркуй общий комментарий аннотацией на этом элементе"; position: absolute; left: 0; bottom: calc(100% + 8px); width: max-content; padding: 6px 10px; border-radius: 8px; background: var(--muted); color: var(--muted-foreground); font-size: 12px; opacity: 0; transform: translateY(4px); transition: opacity .2s, transform .2s; pointer-events: none; }}
+.general {{ position: fixed; right: 16px; top: 16px; z-index: 10; padding: 8px 14px; border-radius: 999px; background: var(--card); border: 1px solid var(--border); box-shadow: 0 4px 16px rgb(0 0 0 / .15); font-size: 13px; cursor: pointer; }}
+.general::after {{ content: "Паркуй общий комментарий аннотацией на этом элементе"; position: absolute; right: 0; top: calc(100% + 8px); width: max-content; padding: 6px 10px; border-radius: 8px; background: var(--muted); color: var(--muted-foreground); font-size: 12px; opacity: 0; transform: translateY(-4px); transition: opacity .2s, transform .2s; pointer-events: none; }}
 .general.hint::after {{ opacity: 1; transform: none; }}
 {hover_rules}
 </style></head><body>

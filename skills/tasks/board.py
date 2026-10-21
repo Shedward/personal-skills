@@ -5,6 +5,7 @@ import pathlib
 import re
 import shutil
 import sys
+import zlib
 
 flags = [a for a in sys.argv[1:] if a.startswith("--")]
 args = [a for a in sys.argv[1:] if not a.startswith("--")]
@@ -89,6 +90,9 @@ def worth(t):
             f'{level("effort", t)}{level("impact", t)}</span>')
 
 
+telegram_hues = (25, 60, 300, 145, 200, 255, 350)
+
+
 def card(t):
     e = html.escape
     title = re.sub(r"`([^`]+)`", r"<code>\1</code>", e(t["title"]))
@@ -104,8 +108,15 @@ def card(t):
     deps = [f'<a class="dep" href="#{e(d)}">{e(d)}</a>' if d in open_ids
             else f'<span class="dep elsewhere" title="в другой группе или беклоге">{e(d)}</span>'
             for d in t.get("depends-on") or [] if d in open_anywhere]
+    needs = [n.strip() for n in str(t.get("needs") or "").strip("[]").split(",") if n.strip()]
+    avatars = "".join(
+        f'<span class="avatar" title="{e(n)}" style="--hue: {telegram_hues[zlib.crc32(n.encode()) % len(telegram_hues)]}">'
+        f'{e("".join(w[0] for w in n.split("-")[:2]) if "-" in n else n[:2]).upper()}</span>'
+        for n in needs)
+    if deps:
+        rows.append(f'<div class="deps">{"".join(f"<span>↳ {d}</span>" for d in deps)}</div>')
     rows.append(f'<div class="bottom">{worth(t)}'
-                f'{"<span class=deps>↳ " + " ".join(deps) + "</span>" if deps else ""}</div>')
+                f'{"<span class=needs>" + avatars + "</span>" if avatars else ""}</div>')
     return f'<div class="card" id="{e(t["id"])}">{"".join(rows)}</div>'
 
 
@@ -246,16 +257,16 @@ h1 {{ font-size: 22px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 24p
 .title {{ display: block; font-weight: 600; line-height: 1.35; letter-spacing: -.005em; cursor: pointer; }}
 .title:hover {{ text-decoration: underline; text-decoration-color: color-mix(in oklab, var(--foreground) 35%, transparent); text-underline-offset: 3px; }}
 .title code {{ font: 12.5px var(--font-mono); padding: 0 3px; border-radius: 4px; background: var(--muted); }}
-.type {{ flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 500; line-height: 18px; padding: 0 8px 0 7px; border-radius: 999px; }}
-.type::before {{ content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .85; }}
+.type {{ flex: none; font-size: 10.5px; font-weight: 500; line-height: 18px; padding: 0 8px; border-radius: 999px; }}
 .waiting, .resolution {{ margin-top: 10px; font-size: 12px; line-height: 1.45; padding: 6px 10px; border-radius: 6px; }}
 .resolution.done::before {{ content: "✓ "; }}
 .resolution.dropped::before {{ content: "✕ "; }}
 .good, .resolution.done {{ --tone: var(--success); }}
 .mid, .waiting {{ --tone: var(--warning); --hue-shift: -15; }}
-.bad, .type.bug {{ --tone: var(--destructive); }}
-.type.decision {{ --tone: var(--primary); }}
-.unknown, .type.task, .resolution.dropped {{ --tone: var(--muted-foreground); }}
+.bad, .type.fix {{ --tone: var(--destructive); }}
+.type.decide {{ --tone: var(--primary); }}
+.type.check {{ --tone: var(--success); --hue-shift: 60; }}
+.unknown, .type.make, .resolution.dropped {{ --tone: var(--muted-foreground); }}
 .solid, .tinted {{ --norm: oklch(from var(--tone) 64% min(c, .14) calc(h + var(--hue-shift, 0))); }}
 .solid {{ background: var(--norm); }}
 .tinted {{ background: color-mix(in oklab, var(--norm) 16%, var(--card)); color: color-mix(in oklab, var(--norm) 65%, var(--foreground)); }}
@@ -265,7 +276,11 @@ h1 {{ font-size: 22px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 24p
 .cell {{ width: 20px; height: 16px; font: 600 10px/16px var(--font-mono); color: var(--on-solid); text-align: center; }}
 .cell.effort {{ clip-path: polygon(0 0, calc(100% - 5px) 0, 100% 50%, calc(100% - 5px) 100%, 0 100%); border-radius: 3px 0 0 3px; padding-right: 5px; }}
 .cell.impact {{ clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 5px 50%); border-radius: 0 3px 3px 0; padding-left: 5px; margin-left: -3.5px; }}
-.deps {{ font: 10px var(--font-mono); color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+.needs {{ flex: none; display: inline-flex; margin-left: auto; }}
+.avatar {{ width: 22px; height: 22px; border-radius: 50%; background: oklch(64% .14 var(--hue)); color: #fff; font: 600 9px/22px var(--font-mono); text-align: center; box-shadow: 0 0 0 2px var(--card); cursor: help; }}
+.avatar + .avatar {{ margin-left: -5px; }}
+.deps {{ display: flex; flex-direction: column; gap: 2px; margin-top: 10px; font: 10px/16px var(--font-mono); color: var(--muted-foreground); }}
+.deps span {{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
 .dep {{ color: var(--primary); text-decoration: none; }}
 .dep:hover {{ text-decoration: underline; }}
 .dep.elsewhere {{ color: var(--muted-foreground); text-decoration: none; }}

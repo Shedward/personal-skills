@@ -101,8 +101,9 @@ def blocker(t):
 def card(t):
     e = html.escape
     title = re.sub(r"`([^`]+)`", r"<code>\1</code>", e(t["title"]))
-    rows = [f'<div class="top"><span class="id" title="Нажми, чтобы скопировать" '
-            f'onclick="navigator.clipboard.writeText(this.textContent)">{e(t["id"])}</span>'
+    rows = [f'<div class="top"><span class="ref"><span class="n">[{t["n"]}]</span>'
+            f'<span class="id" title="Нажми, чтобы скопировать" '
+            f'onclick="navigator.clipboard.writeText(this.textContent)">{e(t["id"])}</span></span>'
             f'<span class="type tinted {e(t.get("type", ""))}">{e(t.get("type", "?"))}</span></div>',
             f'<span class="title" onclick="openView(\'{e(t["id"])}\')">{title}</span>']
     if t.get("status") in ("done", "dropped"):
@@ -182,7 +183,7 @@ def view(t):
     title = re.sub(r"`([^`]+)`", r"<code>\1</code>", html.escape(t["title"]))
     return (f'<dialog class="view" id="view-{html.escape(t["id"])}"{" open" if t["id"] == opened else ""}>'
             f'<div class="sheet"><form method="dialog"><button class="close" aria-label="Закрыть">×</button></form>'
-            f'<h2>{title}</h2>{markdown(t["body"])}</div></dialog>')
+            f'<h2><span class="n">[{t["n"]}]</span> {title}</h2>{markdown(t["body"])}</div></dialog>')
 
 
 def column(title, items, folded=False):
@@ -204,8 +205,10 @@ def by_value(status):
                                  score.get(t.get("effort"), 9), t["id"]))
 
 
-board = ("".join(column(s, by_value(s)) for s in ("open", "in-progress", "waiting"))
-         + column("closed", closed, folded=True))
+lanes = [(s, by_value(s)) for s in ("open", "in-progress", "waiting")] + [("closed", closed)]
+for n, t in enumerate((t for _, items in lanes for t in items), 1):
+    t["n"] = n
+board = "".join(column(s, items, folded=s == "closed") for s, items in lanes)
 hover_rules = "\n".join(
     f'.board:has(a.dep[href="#{i}"]:hover) [id="{i}"] {{ outline: 2px solid var(--ring); outline-offset: 2px; }}'
     for i in sorted(open_ids)) + "\n" + "\n".join(
@@ -267,6 +270,9 @@ h1 {{ font-size: 22px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 24p
 .top {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 6px; }}
 .id {{ font: 10px/16px var(--font-mono); color: color-mix(in oklch, var(--muted-foreground) 80%, transparent); cursor: copy; user-select: all; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
 .id:hover {{ color: var(--primary); }}
+.ref {{ display: flex; gap: 6px; min-width: 0; }}
+.n {{ flex: none; font: 600 10px/16px var(--font-mono); color: var(--muted-foreground); }}
+.view h2 .n {{ font-size: inherit; line-height: inherit; }}
 .title {{ display: block; font-weight: 600; line-height: 1.35; letter-spacing: -.005em; cursor: pointer; }}
 .title:hover {{ text-decoration: underline; text-decoration-color: color-mix(in oklab, var(--foreground) 35%, transparent); text-underline-offset: 3px; }}
 .title code {{ font: 12.5px var(--font-mono); padding: 0 3px; border-radius: 4px; background: var(--muted); }}
@@ -321,11 +327,15 @@ h1 {{ font-size: 22px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 24p
 .sheet figcaption {{ margin-top: 6px; font-size: 12px; color: var(--muted-foreground); }}
 .close {{ float: right; margin: -10px -14px 0 0; width: 32px; height: 32px; border: 0; border-radius: 8px; background: none; color: var(--muted-foreground); font-size: 20px; cursor: pointer; }}
 .close:hover {{ background: var(--muted); color: var(--foreground); }}
+.general {{ position: fixed; left: 16px; bottom: 16px; z-index: 10; padding: 8px 14px; border-radius: 999px; background: var(--card); border: 1px solid var(--border); box-shadow: 0 4px 16px rgb(0 0 0 / .15); font-size: 13px; cursor: pointer; }}
+.general::after {{ content: "Паркуй общий комментарий аннотацией на этом элементе"; position: absolute; left: 0; bottom: calc(100% + 8px); width: max-content; padding: 6px 10px; border-radius: 8px; background: var(--muted); color: var(--muted-foreground); font-size: 12px; opacity: 0; transform: translateY(4px); transition: opacity .2s, transform .2s; pointer-events: none; }}
+.general.hint::after {{ opacity: 1; transform: none; }}
 {hover_rules}
 </style></head><body>
 <h1>{heading}</h1>
 {groups_strip}
 <div class="layout"><div class="board">{board}</div>{"".join(map(view, tasks + closed))}</div>
+<div class="general" id="general-comment" onclick="this.classList.add('hint'); setTimeout(() => this.classList.remove('hint'), 2500)">💬 Для общих комментариев</div>
 <script>
 const closeViews = () => document.querySelectorAll(".view[open]").forEach(d => d.close());
 function openView(id) {{ closeViews(); document.getElementById("view-" + id).show(); }}

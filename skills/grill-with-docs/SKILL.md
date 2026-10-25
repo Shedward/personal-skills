@@ -6,6 +6,10 @@ disable-model-invocation: true
 
 Run a `/grilling` session, using the `/domain-modeling` skill.
 
+In Codex, read the installed `grilling` and `domain-modeling` skills by name
+(`$grilling`, `$domain-modeling`); slash commands here denote skills, not shell
+commands. `~/.claude/docs/` below is shared by both applications.
+
 <!-- ═══ BEGIN LOCAL CUSTOMIZATIONS ═══
      Личные надстройки поверх базового скилла.
      При обновлении скилла сохранить этот блок целиком (merge вручную). -->

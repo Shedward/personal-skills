@@ -9,6 +9,12 @@ Actively build and sharpen the project's domain model as you design. This is the
 
 ## File structure
 
+For this personal collection, keep project artifacts shared between Claude
+and Codex in `~/.claude/docs/<project>/CONTEXT.md` and
+`~/.claude/docs/<project>/adr/`. Use the canonical project name, not a worktree
+directory name; check existing docs first. This overrides the repo-local
+examples below unless the user explicitly chooses repository-local docs.
+
 Most repos have a single context:
 
 ```

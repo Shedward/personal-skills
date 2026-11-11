@@ -31,13 +31,6 @@ def link(label, url):
     return escape(label)
 
 
-def counters(counts):
-    return '<span class="counters">' + "".join(
-        f'<span class="counter c-{lane}" data-count="{n}" title="{label}: {n}" aria-label="{label}: {n}">{n}</span>'
-        for lane, label, n in zip(ui.LANES, LANE_LABELS, counts)
-    ) + "</span>"
-
-
 def issue_dialog(issue):
     key = escape(issue["key"])
     description = issue.get("description")
@@ -88,13 +81,20 @@ def render(snapshot, output, current):
     numbers = count(1)
     dialogs = []
 
-    def lane_counts(members):
-        return [sum(len(lanes[item["key"]][lane]) for item in members) for lane in ui.LANES]
+    def counters(members):
+        cells = []
+        for lane, label in zip(ui.LANES, LANE_LABELS):
+            items = [card for member in members for card in lanes[member["key"]][lane]]
+            personal = sum(ui.blocker(card)[0] == "user" for card in items) if lane != "closed" else 0
+            hint = f"{label}: {len(items)}" + (f" · От тебя: {personal}" if personal else "")
+            badge = f'<sup class="personal-count" aria-hidden="true">{personal}</sup>' if personal else ""
+            cells.append(f'<span class="counter c-{lane}" data-count="{len(items)}" title="{hint}" '
+                         f'aria-label="{hint}">{len(items)}{badge}</span>')
+        return '<span class="counters">' + "".join(cells) + "</span>"
 
     def row(record, tone, expanded=False, parent=False):
         key = escape(record["key"])
         own = lanes[record["key"]]
-        counts = lane_counts(records if parent else [record])
         content = ""
         if parent:
             content = f'<h2 class="own">Собственные задачи портфеля · {len(record["cards"])}</h2>'
@@ -107,7 +107,7 @@ def render(snapshot, output, current):
         dialogs.extend(ui.view(card) for card in record["cards"])
         return (f'<details class="ticket {tone}" data-key="{key}"{" open" if expanded else ""}>'
                 f'<summary class="ticket-head"><button class="issue-title" type="button" data-view="issue-{key}">'
-                f'<span class="key">{key}</span> {escape(record["title"])}</button>{counters(counts)}'
+                f'<span class="key">{key}</span> {escape(record["title"])}</button>{counters(records if parent else [record])}'
                 f'<span class="state">{escape(record["status"])}</span><span class="arrow"></span></summary>'
                 f'<div class="ticket-body">{content}</div></details>')
 
@@ -140,7 +140,7 @@ def render(snapshot, output, current):
         rows = "".join(row(i, tone, i["key"] == current and tone == "active") for i in items)
         body += (f'<details class="bucket {tone}"{"" if folded else " open"}><summary class="bucket-head">'
                  f'<span class="bucket-label"><span class="dot"></span>{escape(label)} '
-                 f'<span class="count">{len(items)}</span></span>{counters(lane_counts(items))}'
+                 f'<span class="count">{len(items)}</span></span>{counters(items)}'
                  f'<span class="arrow"></span></summary><div class="tickets">{rows}</div></details>')
     css = Path(__file__).with_suffix(".css").read_text(encoding="utf-8")
     title = escape(f'{portfolio["key"]} · {portfolio["title"]}')

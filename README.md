@@ -49,6 +49,7 @@ curl -fsSL https://raw.githubusercontent.com/Shedward/personal-skills/main/insta
 
 - Claude: `/my:<name>`, например `/my:todo` и `/my:skills-sync`.
 - Codex: `$<name>`, например `$todo` и `$skills-sync`, или выбор через `/skills`.
+- [Todo Loop](skills/todo-loop/SKILL.md) — `$todo-loop` или «пройдись по мобе»: один чат ведёт исполнителей, вопросы и ревью одной группы задач.
 - `skills-sync` — подтянуть обновления, проверить новые локальные скиллы
   обоих приложений, восстановить недостающие подключения, показать незакоммиченное.
 - Новый скилл — папка `skills/<name>/SKILL.md`.
@@ -75,6 +76,4 @@ curl -fsSL https://raw.githubusercontent.com/Shedward/personal-skills/main/insta
 `critics`, `troubleshoot`, `critics-rewrite` используют сабагентов, если они
 доступны. В Codex агенты разделяют файловую систему: для переписывания
 нужны отдельные git worktree. Без сабагентов скилл сообщает об ограничении.
-Доски `todo` и `portfolio` используют Python 3. В Codex Desktop их можно
-открыть во встроенном браузере с комментариями. Для просмотра из CLI
-установите Plannotator.
+Для живых досок нужен Python 3.9+. `skills/todo/serve-board` ищет `uv` в PATH, затем в `~/.local/bin` и стандартных каталогах Homebrew на Apple Silicon и Intel. Если его нет, Python с `venv` и `pip` устанавливает частную копию в `${XDG_DATA_HOME:-~/.local/share}/personal-skills/tools/uv`. Первый запуск загружает зависимости; с готовым кешем ту же доску можно запустить без сети, в том числе с `UV_OFFLINE=1`. Доска читает локальные данные. Статический HTML не требует `uv`: его можно открыть в браузере или в Plannotator для комментариев.

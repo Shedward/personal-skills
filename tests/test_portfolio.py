@@ -4,6 +4,7 @@ from io import StringIO
 import json
 from pathlib import Path
 import sys
+from subprocess import CalledProcessError
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -11,6 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "skills" / "portfolio"))
 import collect
+import board
 
 
 class PortfolioTests(unittest.TestCase):
@@ -53,6 +55,34 @@ class PortfolioTests(unittest.TestCase):
         self.snapshot()
         self.assertEqual(self.fetch.call_count, 2)
 
+    def test_board_tracks_real_work_and_handoff_without_refreshing_jira(self):
+        self.card.write_text("---\nstatus: in-progress\nnext: agent: проверить\n---\n# В очереди\n")
+        job = self.group / "active.md"
+        job.write_text("---\nstatus: in-progress\nworker: checker\n---\n# Работа\n")
+        parent = self.tasks / "PLAN-1"
+        parent.mkdir()
+        (parent / "parent.md").write_text("---\nstatus: in-progress\nworker: main\n---\n# Общая работа\n")
+        output = self.root / "board.html"
+        board.render(self.snapshot(), output, "APP-1")
+        page = output.read_text()
+        self.assertEqual(page.count('class="card working"'), 2)
+        self.assertIn('title="Работает агент: checker"', page)
+        self.assertEqual(page.count('title="В работе: 3 · Агент работает: 2"'), 1)  # весь портфель
+        self.assertEqual(page.count('title="В работе: 2 · Агент работает: 1"'), 2)  # группа и тикет
+
+        job.write_text("---\nstatus: in-progress\nworker: checker\nnext: user: ревью\n---\n# Работа\n")
+        board.render(self.snapshot(), output, "APP-1")
+        page = output.read_text()
+        self.assertEqual(page.count('class="card working"'), 1)
+        self.assertNotIn('Работает агент: checker', page)
+        self.assertIn('title="В работе: 2 · От тебя: 1"', page)
+        job.write_text("---\nstatus: in-progress\nnext: design: ответ\n---\n# Работа\n")
+        board.render(self.snapshot(), output, "APP-1")
+        page = output.read_text()
+        self.assertIn('aria-label="Ждут: 1">1</span>', page)
+        self.assertIn('Ждём design: ответ', page)
+        self.assertEqual(self.fetch.call_count, 1)
+
     def test_first_use_next_day_and_explicit_refresh(self):
         state = self.snapshot()
         state["jira_updated_at"] = (datetime.now().astimezone() - timedelta(days=1)).isoformat()
@@ -90,6 +120,23 @@ class PortfolioTests(unittest.TestCase):
         self.fetch.side_effect = fetch
         self.assertFalse(self.snapshot()["jira_stale"])
         self.assertEqual(self.fetch.call_count, 3)
+
+    def test_failed_uv_install_preserves_cached_jira(self):
+        old = self.snapshot()
+        self.args.refresh = True
+        self.fetch.side_effect = CalledProcessError(1, "pip")
+        stale = self.snapshot()
+        self.assertTrue(stale["jira_stale"])
+        self.assertEqual(stale["jira_updated_at"], old["jira_updated_at"])
+
+    def test_markdown_attachment_is_not_resolved_as_a_card_dependency(self):
+        self.card.write_text("---\nstatus: open\ndepends-on: [reference]\n---\n# Вопрос\n")
+        resources = self.group / "Resources"
+        resources.mkdir()
+        (resources / "reference.md").write_text("# Материалы")
+        output = self.root / "board.html"
+        board.render(self.snapshot(), output, "APP-1")
+        self.assertNotIn('class="dep elsewhere"', output.read_text())
 
     def test_failed_cold_start_or_new_selection_preserves_existing_file(self):
         with patch.object(collect, "jira_issues", side_effect=TimeoutError), self.assertRaises(TimeoutError):

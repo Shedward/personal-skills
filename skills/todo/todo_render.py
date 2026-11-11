@@ -7,7 +7,8 @@ import shutil
 from urllib.parse import quote
 import zlib
 
-score = {"low": 1, "medium": 2, "high": 3}
+from todo_cards import CLOSED, active_worker, blocker, score
+
 grade = {"effort": {"low": "good", "medium": "mid", "high": "bad"},
          "impact": {"low": "bad", "medium": "mid", "high": "good"}}
 LANES = ("open", "in-progress", "waiting", "closed")
@@ -37,6 +38,16 @@ class Attachments:
 
 def attach_body(body, parent, attachments):
     return re.sub(r"(!\[[^\]]*\]\()([^)]+)\)", lambda m: m[1] + attachments.url(parent / m[2]) + ")", body)
+
+
+def card_body(path, attachments):
+    with path.open(encoding="utf-8-sig") as stream:
+        next(stream, None)
+        for line in stream:
+            if line.strip() == "---":
+                break
+        body = stream.read()
+    return attach_body(body, path.parent, attachments)
 
 
 def level(axis, t):
@@ -69,9 +80,24 @@ def worth(t):
 telegram_hues = (25, 60, 300, 145, 200, 255, 350)
 
 
-def blocker(t):
-    actor, _, need = str(t.get("next") or "").partition(":")
-    return actor.strip(), need.strip()
+def actor_style(actor):
+    return f'style="--hue: {telegram_hues[zlib.crc32(actor.encode()) % len(telegram_hues)]}"'
+
+
+def status_count(items, css_class, label):
+    working = sum(1 for item in items if active_worker(item))
+    needs_user = sum(1 for item in items if item.get("status") == "in-progress" and blocker(item)[0] == "user")
+    hint, badges = [f"{label}: {len(items)}"], []
+    for actor, name, total in (("agent", "Агент работает", working), ("user", labels["user"], needs_user)):
+        if not total:
+            continue
+        hint.append(f"{name}: {total}")
+        pulse = " working-badge" if actor == "agent" else ""
+        badges.append(f'<sup class="actor-count{pulse}" {actor_style(actor)}>{total}</sup>')
+    hint = html.escape(" · ".join(hint))
+    suffix = f'<span class="actor-counts" aria-hidden="true">{"".join(badges)}</span>' if badges else ""
+    return (f'<span class="{css_class}" data-count="{len(items)}" title="{hint}" aria-label="{hint}">'
+            f'{len(items)}{suffix}</span>')
 
 
 def card(t, open_ids, open_anywhere):
@@ -82,7 +108,7 @@ def card(t, open_ids, open_anywhere):
             f'onclick="navigator.clipboard.writeText(this.textContent)">{e(t["id"])}</span></span>'
             f'<span class="type tinted {e(t.get("type", ""))}">{e(t.get("type", "?"))}</span></div>',
             f'<button type="button" class="title" data-view="view-{e(t["id"])}">{title}</button>']
-    if t.get("status") in ("done", "dropped"):
+    if t.get("status") in CLOSED:
         rows.append(f'<div class="resolution tinted {e(t["status"])}">{e(t.get("resolution") or t["status"])}</div>')
         return f'<div class="card closed" id="{e(t["id"])}">{"".join(rows)}</div>'
     deps = [f'<a class="dep" href="#{e(d)}">{e(d)}</a>' if d in open_ids
@@ -90,17 +116,21 @@ def card(t, open_ids, open_anywhere):
             for d in t.get("depends-on") or [] if d in open_anywhere]
     actor, need = blocker(t)
     mover = actor or "agent"
-    hue = f'style="--hue: {telegram_hues[zlib.crc32(mover.encode()) % len(telegram_hues)]}"'
+    hue = actor_style(mover)
+    worker = active_worker(t)
+    owner = f"Работает агент: {worker}" if worker else mover
     if actor:
-        rows.append(f'<div class="blocker tinted" {hue}>{labels.get(actor) or "Ждём " + e(actor)}: {e(need)}</div>')
-    avatars = (f'<span class="avatar" title="{e(mover)}" {hue}>'
+        step = re.sub(r"\[([^\]]+)\]\((https?://[^\s)]+)\)", r'<a href="\2" target="_blank" rel="noopener noreferrer">\1</a>', e(need))
+        rows.append(f'<div class="blocker tinted" {hue}>{labels.get(actor) or "Ждём " + e(actor)}: {step}</div>')
+    avatars = (f'<span class="avatar" title="{e(owner)}" aria-label="{e(owner)}" {hue}>'
                f'{e("".join(w[0] for w in mover.split("-")[:2]) if "-" in mover else mover[:2]).upper()}</span>'
                if t.get("status") == "in-progress" else "")
     if deps:
         rows.append(f'<div class="deps">{"".join(f"<span>↳ {d}</span>" for d in deps)}</div>')
     rows.append(f'<div class="bottom">{worth(t)}'
                 f'{"<span class=needs>" + avatars + "</span>" if avatars else ""}</div>')
-    return f'<div class="card" id="{e(t["id"])}">{"".join(rows)}</div>'
+    attrs = f'class="card working" {hue}' if worker else 'class="card"'
+    return f'<div {attrs} id="{e(t["id"])}">{"".join(rows)}</div>'
 
 
 def inline(s):
@@ -163,7 +193,7 @@ def view(t, opened=None):
 
 
 def lane(t):
-    if t.get("status") in ("done", "dropped"):
+    if t.get("status") in CLOSED:
         return "closed"
     return "waiting" if blocker(t)[0] not in ("", *labels) else t.get("status")
 
@@ -192,7 +222,7 @@ def columns(lanes, numbers, open_ids, open_anywhere, prefix=""):
         checked = " checked" if title == "closed" else ""
         cards = "".join(card(t, open_ids, open_anywhere) for t in items)
         sections.append(f'<section class="column"><input type="checkbox" class="fold" id="{fold_id}"{checked}>'
-                        f'<label class="head" for="{fold_id}"><h2>{title} <span class="count">{len(items)}</span></h2></label>'
+                        f'<label class="head" for="{fold_id}"><h2>{title} {status_count(items, "count", title)}</h2></label>'
                         f'<div class="cards">{cards}</div></section>')
     return "".join(sections)
 
@@ -210,7 +240,8 @@ def hover_rules(open_ids, tasks):
 
 
 SCRIPT = """<script>
-let opener;
+let viewFor = id => document.getElementById(id);
+function triggerFor(id) { return document.querySelector('[data-view="' + CSS.escape(id) + '"]'); }
 function closeViews() { document.querySelectorAll(".view[open]").forEach(d => d.close()); }
 document.addEventListener("click", e => {
     const close = e.target.closest(".view .close");
@@ -228,10 +259,12 @@ document.addEventListener("click", e => {
     const trigger = e.target.closest("[data-view]");
     if (trigger) {
         closeViews();
-        const panel = document.getElementById(trigger.dataset.view);
-        if (panel) { opener = trigger; panel.show(); panel.querySelector(".close").focus({preventScroll:true}); }
+        const panel = viewFor(trigger.dataset.view);
+        if (panel) { panel.show(); panel.querySelector(".close").focus({preventScroll:true}); }
     }
 });
-document.addEventListener("close", e => { if (e.target.matches(".view") && !document.querySelector(".view[open]")) opener?.focus({preventScroll:true}); }, true);
+document.addEventListener("close", e => {
+    if (e.target.matches(".view") && !document.querySelector(".view[open]")) triggerFor(e.target.id)?.focus({preventScroll:true});
+}, true);
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeViews(); });
 </script>"""

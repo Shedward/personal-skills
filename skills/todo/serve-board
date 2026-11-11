@@ -2,12 +2,21 @@
 """Serve a generated HTML board and its board-assets on a loopback URL."""
 
 import argparse
+import os
+import sys
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote
 
-parser = argparse.ArgumentParser(description=__doc__)
+if any(arg.split("=", 1)[0] in {"--tasks", "--portfolio"} for arg in sys.argv[1:]):
+    script = Path(__file__).resolve().with_name("live_board.py")
+    sys.path.insert(0, str(script.parents[2] / "scripts"))
+    from uv_runtime import uv_binary
+    uv = uv_binary()
+    os.execv(uv, [uv, "run", "--python", sys.executable, "--script", str(script), *sys.argv[1:]])
+
+parser = argparse.ArgumentParser(description=__doc__, epilog="Live: serve-board --tasks TASKS [--group GROUP] or --portfolio SNAPSHOT [--tasks TASKS] [--current KEY]")
 parser.add_argument("board", type=Path, help="path to the generated HTML file")
 args = parser.parse_args()
 board = args.board.expanduser().resolve()

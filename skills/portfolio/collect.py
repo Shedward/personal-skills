@@ -11,51 +11,43 @@ import subprocess
 import sys
 import tempfile
 
-
-CLOSED = {"done", "dropped"}
-
-
-def read_card(path, tasks):
-    card = {"id": path.stem, "path": str(path.relative_to(tasks))}
-    with path.open(encoding="utf-8-sig") as stream:
-        if next(stream, "").strip() != "---":
-            raise ValueError(f"Отсутствует frontmatter: {path}")
-        name = ""
-        for line in stream:
-            value = line.strip()
-            if value == "---":
-                break
-            if name == "depends-on" and value.startswith("- "):
-                card[name].append(value[2:].strip().strip("\"'"))
-                continue
-            name, _, value = line.partition(":")
-            if name == "depends-on":
-                card[name] = [item.strip().strip("\"'") for item in
-                              value.strip().strip("[]").split(",") if item.strip()]
-            elif name in {"type", "status", "next", "resolution", "effort", "impact"}:
-                card[name] = value.strip().strip("\"'")
-        else:
-            raise ValueError(f"Не закрыт frontmatter: {path}")
-        card["title"] = next((line[2:].strip() for line in stream if line.startswith("# ")), path.stem)
-    if not card.get("status"):
-        raise ValueError(f"Нет статуса карточки: {path}")
-    return card
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from todo.todo_cards import CLOSED, group_dirs, read_card
 
 
 def local_cards(tasks, keys):
     cards = {key: [] for key in keys}
     if tasks.exists():
-        groups = []
-        for entry in tasks.iterdir():
-            if entry.is_dir() and entry.name.casefold() == "done":
-                groups.extend(path for path in entry.iterdir() if path.is_dir())
-            elif entry.is_dir() and entry.name.casefold() != "resources":
-                groups.append(entry)
+        groups = group_dirs(tasks)
+        for archive in (p for p in tasks.iterdir() if p.is_dir() and p.name.casefold() == "done"):
+            groups.extend(group_dirs(archive))
         for group in sorted(groups):
             for key in cards:
                 if group.name == key or group.name.endswith("-" + key):
                     cards[key].extend(read_card(path, tasks) for path in sorted(group.glob("*.md")))
     return cards
+
+
+def board_snapshot(path, tasks=None, prs_path=None):
+    snapshot = json.loads(path.read_text(encoding="utf-8"))
+    records = [snapshot["portfolio"], *snapshot["issues"]]
+    keys = [record["key"] for record in records]
+    if not all(keys) or len(set(keys)) != len(keys):
+        raise ValueError("Каждому тикету нужен свой непустой ключ")
+    if tasks is not None:
+        snapshot["tasks_root"] = str(tasks.resolve())
+        cards = local_cards(tasks, keys)
+        for record in records:
+            record["cards"] = cards[record["key"]]
+    if prs_path is not None:
+        prs = json.loads(prs_path.read_text(encoding="utf-8"))
+        for record in records:
+            if record["key"] in prs:
+                record["prs"] = prs[record["key"]]
+    branch = git_value("branch", "--show-current")
+    branch_key = next((key for key in keys if re.search(
+        r"(?<![A-Za-z0-9])" + re.escape(key) + r"(?![A-Za-z0-9])", branch)), None)
+    return snapshot, branch_key
 
 
 def issue_record(raw, jira_url):
@@ -93,7 +85,9 @@ def select_issues(parents, key, selection):
 
 
 def jira_issues(key, selection):
-    command = ["uv", "run", "--script", str(Path(__file__).with_name("jira.py")), key, *selection["via"]]
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    from uv_runtime import uv_binary
+    command = [uv_binary(), "run", "--script", str(Path(__file__).with_name("jira.py")), key, *selection["via"]]
     if selection["child_project"]:
         command.extend(["--child-project", selection["child_project"]])
     if selection["jira_url"]:
@@ -135,7 +129,7 @@ def update(args, path, tasks, defaults):
     if refresh:
         try:
             portfolio, issues = jira_issues(args.key, selection)
-        except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
+        except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
             if not compatible:
                 raise
             print(f"Обновление Jira не удалось: {error}", file=sys.stderr)
@@ -206,5 +200,5 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
         sys.exit(f"Не удалось собрать портфель: {error}")

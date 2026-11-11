@@ -4,7 +4,6 @@ import argparse
 from itertools import count
 import re
 from datetime import datetime
-import json
 import sys
 from html import escape
 from pathlib import Path
@@ -15,8 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "todo"))
 import todo_render as ui
 
 GROUPS = {
-    "in progress": ("В работе", "active", 0),
-    "open": ("Открыты", "planned", 1),
+    "open": ("Открыты", "planned", 0),
+    "in progress": ("В работе", "active", 1),
     "ready for testing": ("Ждут тестирования", "waiting", 3),
     "closed": ("Закрыты", "complete", 4),
     "done": ("Завершены", "complete", 4),
@@ -49,11 +48,11 @@ def issue_dialog(issue):
             f'<p class="pr">{pr_text}</p></div></dialog>')
 
 
-def render(snapshot, output, current, branch_key=None):
+def render(snapshot, output, current, branch_key=None, views=None):
     portfolio, issues = snapshot["portfolio"], snapshot["issues"]
     records = [portfolio, *issues]
     root = Path(snapshot["tasks_root"]).expanduser().resolve() if snapshot.get("tasks_root") else None
-    attachments = ui.Attachments(output, root) if root else None
+    attachments = ui.Attachments(output, root) if root and views is None else None
     cards = [card for record in records for card in record["cards"]]
     card_ids = {c["id"] for c in cards}
     if len(card_ids) != len(cards):
@@ -62,19 +61,19 @@ def render(snapshot, output, current, branch_key=None):
     dependencies = {dep for c in cards for dep in c.get("depends-on", [])}
     open_anywhere = set(open_ids)
     external = dependencies - card_ids
-    if root and external:
-        from collect import read_card
-        for path in root.rglob("*.md"):
-            if path.stem in external and path.relative_to(root).parts[0].lower() != "done":
-                if ui.lane(read_card(path, root)) != "closed":
+    if root and root.is_dir() and external:
+        from todo_cards import group_dirs, read_card
+        for directory in (root, *group_dirs(root)):
+            for path in directory.glob("*.md"):
+                if path.stem in external and ui.lane(read_card(path, root)) != "closed":
                     open_anywhere.add(path.stem)
 
     for card in cards:
         path = (root / card["path"]).resolve() if root and card.get("path") else None
         if path and path.is_relative_to(root) and path.is_file():
-            parts = path.read_text(encoding="utf-8-sig").split("---", 2)
-            card["body"] = ui.attach_body(parts[-1], path.parent, attachments)
             card["mtime"] = path.stat().st_mtime
+            if views is None:
+                card["body"] = ui.card_body(path, attachments)
         else:
             card["body"] = "Файл карточки недоступен."
     lanes = {record["key"]: ui.lanes_for(record["cards"]) for record in records}
@@ -85,11 +84,7 @@ def render(snapshot, output, current, branch_key=None):
         cells = []
         for lane, label in zip(ui.LANES, LANE_LABELS):
             items = [card for member in members for card in lanes[member["key"]][lane]]
-            personal = sum(ui.blocker(card)[0] == "user" for card in items) if lane != "closed" else 0
-            hint = f"{label}: {len(items)}" + (f" · От тебя: {personal}" if personal else "")
-            badge = f'<sup class="personal-count" aria-hidden="true">{personal}</sup>' if personal else ""
-            cells.append(f'<span class="counter c-{lane}" data-count="{len(items)}" title="{hint}" '
-                         f'aria-label="{hint}">{len(items)}{badge}</span>')
+            cells.append(ui.status_count(items, f"counter c-{lane}", label))
         return '<span class="counters">' + "".join(cells) + "</span>"
 
     def row(record, tone, parent=False):
@@ -105,8 +100,12 @@ def render(snapshot, output, current, branch_key=None):
             content += f'<div class="board">{columns}</div>'
         elif not parent:
             content = '<p class="empty">Нет локальных карточек</p>'
-        dialogs.append(issue_dialog(record))
-        dialogs.extend(ui.view(card) for card in record["cards"])
+        if views is None:
+            dialogs.append(issue_dialog(record))
+            dialogs.extend(ui.view(card) for card in record["cards"])
+        else:
+            views["issue-" + record["key"]] = record
+            views.update(("view-" + card["id"], card) for card in record["cards"])
         return (f'<details class="ticket {tone}" data-key="{key}"{" open" if expanded else ""}>'
                 f'<summary class="ticket-head"{branch_hint}><button class="issue-title" type="button" data-view="issue-{key}">'
                 f'<span class="key">{key}</span> {escape(record["title"])}</button>{counters(records if parent else [record])}'
@@ -141,18 +140,21 @@ def render(snapshot, output, current, branch_key=None):
     for (_, label, tone), items in sorted(groups.items()):
         expanded = any(i["key"] == current for i in items)
         rows = "".join(row(i, tone) for i in items)
-        body += (f'<details class="bucket {tone}"{" open" if expanded else ""}><summary class="bucket-head">'
+        body += (f'<details class="bucket {tone}" data-key="{escape(label)}"{" open" if expanded else ""}><summary class="bucket-head">'
                  f'<span class="bucket-label"><span class="dot"></span>{escape(label)} '
                  f'<span class="count">{len(items)}</span></span>{counters(items)}'
                  f'<span class="arrow"></span></summary><div class="tickets">{rows}</div></details>')
     css = Path(__file__).with_suffix(".css").read_text(encoding="utf-8")
     title = escape(f'{portfolio["key"]} · {portfolio["title"]}')
-    output.write_text(f"""<!doctype html>
+    page = f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="plannotator-theme" content="host">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>{title}</title>
 <style>{ui.style()}\n{css}\n{ui.hover_rules(open_ids, cards)}</style></head><body>
 <main class="layout"><div class="portfolio">{body}</div>{"".join(dialogs)}</main>
-{ui.SCRIPT}</body></html>""", encoding="utf-8")
+{ui.SCRIPT}</body></html>"""
+    if views is not None:
+        return page
+    output.write_text(page, encoding="utf-8")
 
 
 def main():
@@ -164,26 +166,13 @@ def main():
     parser.add_argument("--current", help="тикет для раскрытия, если ключ ветки отсутствует в портфеле")
     args = parser.parse_args()
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from collect import git_value, local_cards
+    from collect import board_snapshot
     path = args.output if args.legacy_output else args.snapshot
     output = args.legacy_output or args.output
-    snapshot = json.loads(path.read_text(encoding="utf-8"))
-    portfolio, issues = snapshot["portfolio"], snapshot["issues"]
-    keys = [issue["key"] for issue in [portfolio] + issues]
-    if len(set(keys)) != len(keys) or not all(keys):
-        parser.error("Каждому тикету нужен свой непустой ключ")
-    if args.legacy_output:
-        snapshot["tasks_root"] = str(args.snapshot.expanduser().resolve())
-        cards = local_cards(args.snapshot.expanduser(), keys)
-        for record in [portfolio, *issues]:
-            record["cards"] = cards[record["key"]]
-    if args.prs:
-        prs = json.loads(args.prs.read_text(encoding="utf-8"))
-        for record in [portfolio, *issues]:
-            if record["key"] in prs:
-                record["prs"] = prs[record["key"]]
-    branch = git_value("branch", "--show-current")
-    branch_key = next((key for key in keys if re.search(r"(?<![A-Za-z0-9])" + re.escape(key) + r"(?![A-Za-z0-9])", branch)), None)
+    try:
+        snapshot, branch_key = board_snapshot(path, args.snapshot.expanduser() if args.legacy_output else None, args.prs)
+    except ValueError as error:
+        parser.error(str(error))
     render(snapshot, output, branch_key or args.current, branch_key)
 
 

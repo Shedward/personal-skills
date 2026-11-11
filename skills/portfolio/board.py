@@ -15,11 +15,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "todo"))
 import todo_render as ui
 
 GROUPS = {
-    "in progress": ("В работе", "active", 0, False),
-    "open": ("Открыты", "planned", 1, False),
-    "ready for testing": ("Ждут тестирования", "waiting", 3, True),
-    "closed": ("Закрыты", "complete", 4, True),
-    "done": ("Завершены", "complete", 4, True),
+    "in progress": ("В работе", "active", 0),
+    "open": ("Открыты", "planned", 1),
+    "ready for testing": ("Ждут тестирования", "waiting", 3),
+    "closed": ("Закрыты", "complete", 4),
+    "done": ("Завершены", "complete", 4),
 }
 
 LANE_LABELS = ("Открыты", "В работе", "Ждут", "Закрыты")
@@ -49,7 +49,7 @@ def issue_dialog(issue):
             f'<p class="pr">{pr_text}</p></div></dialog>')
 
 
-def render(snapshot, output, current):
+def render(snapshot, output, current, branch_key=None):
     portfolio, issues = snapshot["portfolio"], snapshot["issues"]
     records = [portfolio, *issues]
     root = Path(snapshot["tasks_root"]).expanduser().resolve() if snapshot.get("tasks_root") else None
@@ -92,8 +92,10 @@ def render(snapshot, output, current):
                          f'aria-label="{hint}">{len(items)}{badge}</span>')
         return '<span class="counters">' + "".join(cells) + "</span>"
 
-    def row(record, tone, expanded=False, parent=False):
+    def row(record, tone, parent=False):
         key = escape(record["key"])
+        expanded = record["key"] == current
+        branch_hint = ' aria-current="true" aria-description="Текущая ветка"' if record["key"] == branch_key else ''
         own = lanes[record["key"]]
         content = ""
         if parent:
@@ -106,7 +108,7 @@ def render(snapshot, output, current):
         dialogs.append(issue_dialog(record))
         dialogs.extend(ui.view(card) for card in record["cards"])
         return (f'<details class="ticket {tone}" data-key="{key}"{" open" if expanded else ""}>'
-                f'<summary class="ticket-head"><button class="issue-title" type="button" data-view="issue-{key}">'
+                f'<summary class="ticket-head"{branch_hint}><button class="issue-title" type="button" data-view="issue-{key}">'
                 f'<span class="key">{key}</span> {escape(record["title"])}</button>{counters(records if parent else [record])}'
                 f'<span class="state">{escape(record["status"])}</span><span class="arrow"></span></summary>'
                 f'<div class="ticket-body">{content}</div></details>')
@@ -116,8 +118,8 @@ def render(snapshot, output, current):
     for issue in issues:
         raw = issue["status"]
         status = aliases.get(raw.strip().casefold(), raw.strip().casefold())
-        label, tone, order, folded = GROUPS.get(status, (raw, "neutral", 2, False))
-        groups.setdefault((order, label, tone, folded), []).append(issue)
+        label, tone, order = GROUPS.get(status, (raw, "neutral", 2))
+        groups.setdefault((order, label, tone), []).append(issue)
 
     legend = "".join(f'<span class="legend-item c-{lane}">{label}</span>'
                      for lane, label in zip(ui.LANES, LANE_LABELS))
@@ -136,9 +138,10 @@ def render(snapshot, output, current):
             '</details></div>' + row(portfolio, "parent", parent=True))
     if snapshot.get("notice"):
         body += f'<aside>{escape(snapshot["notice"])}</aside>'
-    for (_, label, tone, folded), items in sorted(groups.items()):
-        rows = "".join(row(i, tone, i["key"] == current and tone == "active") for i in items)
-        body += (f'<details class="bucket {tone}"{"" if folded else " open"}><summary class="bucket-head">'
+    for (_, label, tone), items in sorted(groups.items()):
+        expanded = any(i["key"] == current for i in items)
+        rows = "".join(row(i, tone) for i in items)
+        body += (f'<details class="bucket {tone}"{" open" if expanded else ""}><summary class="bucket-head">'
                  f'<span class="bucket-label"><span class="dot"></span>{escape(label)} '
                  f'<span class="count">{len(items)}</span></span>{counters(items)}'
                  f'<span class="arrow"></span></summary><div class="tickets">{rows}</div></details>')
@@ -158,7 +161,7 @@ def main():
     parser.add_argument("output", type=Path)
     parser.add_argument("legacy_output", type=Path, nargs="?", help="старый вызов: TASKS SNAPSHOT OUTPUT")
     parser.add_argument("--prs", type=Path, help="проверенные PR по ключу тикета")
-    parser.add_argument("--current", help="ключ текущего тикета в этом чате (по умолчанию из ветки)")
+    parser.add_argument("--current", help="тикет для раскрытия, если ключ ветки отсутствует в портфеле")
     args = parser.parse_args()
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from collect import git_value, local_cards
@@ -179,11 +182,9 @@ def main():
         for record in [portfolio, *issues]:
             if record["key"] in prs:
                 record["prs"] = prs[record["key"]]
-    current = args.current
-    if current is None:
-        branch = git_value("branch", "--show-current")
-        current = next((key for key in keys if re.search(r"(?<![A-Za-z0-9])" + re.escape(key) + r"(?![A-Za-z0-9])", branch)), None)
-    render(snapshot, output, current)
+    branch = git_value("branch", "--show-current")
+    branch_key = next((key for key in keys if re.search(r"(?<![A-Za-z0-9])" + re.escape(key) + r"(?![A-Za-z0-9])", branch)), None)
+    render(snapshot, output, branch_key or args.current, branch_key)
 
 
 if __name__ == "__main__":

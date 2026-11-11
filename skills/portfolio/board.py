@@ -1,0 +1,190 @@
+"""python3 -I board.py SNAPSHOT.json BOARD.html [--prs PRS.json]"""
+
+import argparse
+from itertools import count
+import re
+from datetime import datetime
+import json
+import sys
+from html import escape
+from pathlib import Path
+from urllib.parse import urlsplit
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "todo"))
+import todo_render as ui
+
+GROUPS = {
+    "in progress": ("В работе", "active", 0, False),
+    "open": ("Открыты", "planned", 1, False),
+    "ready for testing": ("Ждут тестирования", "waiting", 3, True),
+    "closed": ("Закрыты", "complete", 4, True),
+    "done": ("Завершены", "complete", 4, True),
+}
+
+LANE_LABELS = ("Открыты", "В работе", "Ждут", "Закрыты")
+
+
+def link(label, url):
+    if url and urlsplit(url).scheme in {"https", "http"} and urlsplit(url).netloc:
+        return f'<a href="{escape(url, quote=True)}">{escape(label)}</a>'
+    return escape(label)
+
+
+def counters(counts):
+    return '<span class="counters">' + "".join(
+        f'<span class="counter c-{lane}" data-count="{n}" title="{label}: {n}" aria-label="{label}: {n}">{n}</span>'
+        for lane, label, n in zip(ui.LANES, LANE_LABELS, counts)
+    ) + "</span>"
+
+
+def issue_dialog(issue):
+    key = escape(issue["key"])
+    description = issue.get("description")
+    body = ("Описание отсутствует." if description == "" else "Описание недоступно в этом снимке.")
+    if description:
+        body = description
+    body = re.sub(r"(?m)^h[1-6]\. +(.+)$", r"<h3>\1</h3>", escape(body))
+    prs = issue.get("prs")
+    pr_text = "PR не проверены" if prs is None else "PR не найдены"
+    if prs:
+        pr_text = " · ".join(link(pr["label"], pr.get("url")) for pr in prs)
+    return (f'<dialog class="view" id="issue-{key}" aria-label="{key}"><div class="sheet">'
+            f'{ui.CLOSE_BUTTON}'
+            f'<div class="issue-meta">{link(issue["key"], issue.get("url"))} · {escape(issue["status"])}</div>'
+            f'<h2>{escape(issue["title"])}</h2><div class="jira-description">{body}</div>'
+            f'<p class="pr">{pr_text}</p></div></dialog>')
+
+
+def render(snapshot, output, current):
+    portfolio, issues = snapshot["portfolio"], snapshot["issues"]
+    records = [portfolio, *issues]
+    root = Path(snapshot["tasks_root"]).expanduser().resolve() if snapshot.get("tasks_root") else None
+    attachments = ui.Attachments(output, root) if root else None
+    cards = [card for record in records for card in record["cards"]]
+    card_ids = {c["id"] for c in cards}
+    if len(card_ids) != len(cards):
+        raise ValueError("В снимке есть карточки с одинаковым ID. Проверь принадлежность карточек группам.")
+    open_ids = {c["id"] for c in cards if ui.lane(c) != "closed"}
+    dependencies = {dep for c in cards for dep in c.get("depends-on", [])}
+    open_anywhere = set(open_ids)
+    external = dependencies - card_ids
+    if root and external:
+        from collect import read_card
+        for path in root.rglob("*.md"):
+            if path.stem in external and path.relative_to(root).parts[0].lower() != "done":
+                if ui.lane(read_card(path, root)) != "closed":
+                    open_anywhere.add(path.stem)
+
+    for card in cards:
+        path = (root / card["path"]).resolve() if root and card.get("path") else None
+        if path and path.is_relative_to(root) and path.is_file():
+            parts = path.read_text(encoding="utf-8-sig").split("---", 2)
+            card["body"] = ui.attach_body(parts[-1], path.parent, attachments)
+            card["mtime"] = path.stat().st_mtime
+        else:
+            card["body"] = "Файл карточки недоступен."
+    lanes = {record["key"]: ui.lanes_for(record["cards"]) for record in records}
+    numbers = count(1)
+    dialogs = []
+
+    def lane_counts(members):
+        return [sum(len(lanes[item["key"]][lane]) for item in members) for lane in ui.LANES]
+
+    def row(record, tone, expanded=False, parent=False):
+        key = escape(record["key"])
+        own = lanes[record["key"]]
+        counts = lane_counts(records if parent else [record])
+        content = ""
+        if parent:
+            content = f'<h2 class="own">Собственные задачи портфеля · {len(record["cards"])}</h2>'
+        if record["cards"]:
+            columns = ui.columns(own, numbers, open_ids, open_anywhere, prefix=record["key"] + "-")
+            content += f'<div class="board">{columns}</div>'
+        elif not parent:
+            content = '<p class="empty">Нет локальных карточек</p>'
+        dialogs.append(issue_dialog(record))
+        dialogs.extend(ui.view(card) for card in record["cards"])
+        return (f'<details class="ticket {tone}" data-key="{key}"{" open" if expanded else ""}>'
+                f'<summary class="ticket-head"><button class="issue-title" type="button" data-view="issue-{key}">'
+                f'<span class="key">{key}</span> {escape(record["title"])}</button>{counters(counts)}'
+                f'<span class="state">{escape(record["status"])}</span><span class="arrow"></span></summary>'
+                f'<div class="ticket-body">{content}</div></details>')
+
+    aliases = snapshot.get("status_aliases", {})
+    groups = {}
+    for issue in issues:
+        raw = issue["status"]
+        status = aliases.get(raw.strip().casefold(), raw.strip().casefold())
+        label, tone, order, folded = GROUPS.get(status, (raw, "neutral", 2, False))
+        groups.setdefault((order, label, tone, folded), []).append(issue)
+
+    legend = "".join(f'<span class="legend-item c-{lane}">{label}</span>'
+                     for lane, label in zip(ui.LANES, LANE_LABELS))
+    stamp = snapshot.get("jira_updated_at", "")
+    if stamp:
+        try:
+            stamp = datetime.fromisoformat(stamp).strftime("%d.%m.%Y · %H:%M %z")
+        except ValueError:
+            pass
+        stamp = f'<span class="stamp">Снимок Jira · {escape(stamp)}</span>'
+    body = (f'<div class="toolbar"><div class="board-info">'
+            f'<div class="legend" aria-label="Статусы карточек">{legend}</div>{stamp}</div>'
+            '<details class="comment-help"><summary id="general-comment" aria-label="Общий комментарий" '
+            'title="Общий комментарий">💬</summary>'
+            '<span>В режиме Annotate нажми на 💬, чтобы оставить комментарий ко всей доске.</span>'
+            '</details></div>' + row(portfolio, "parent", parent=True))
+    if snapshot.get("notice"):
+        body += f'<aside>{escape(snapshot["notice"])}</aside>'
+    for (_, label, tone, folded), items in sorted(groups.items()):
+        rows = "".join(row(i, tone, i["key"] == current and tone == "active") for i in items)
+        body += (f'<details class="bucket {tone}"{"" if folded else " open"}><summary class="bucket-head">'
+                 f'<span class="bucket-label"><span class="dot"></span>{escape(label)} '
+                 f'<span class="count">{len(items)}</span></span>{counters(lane_counts(items))}'
+                 f'<span class="arrow"></span></summary><div class="tickets">{rows}</div></details>')
+    css = Path(__file__).with_suffix(".css").read_text(encoding="utf-8")
+    title = escape(f'{portfolio["key"]} · {portfolio["title"]}')
+    output.write_text(f"""<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="plannotator-theme" content="host">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>{title}</title>
+<style>{ui.style()}\n{css}\n{ui.hover_rules(open_ids, cards)}</style></head><body>
+<main class="layout"><div class="portfolio">{body}</div>{"".join(dialogs)}</main>
+{ui.SCRIPT}</body></html>""", encoding="utf-8")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Сводная доска портфеля и его тикетов")
+    parser.add_argument("snapshot", type=Path)
+    parser.add_argument("output", type=Path)
+    parser.add_argument("legacy_output", type=Path, nargs="?", help="старый вызов: TASKS SNAPSHOT OUTPUT")
+    parser.add_argument("--prs", type=Path, help="проверенные PR по ключу тикета")
+    parser.add_argument("--current", help="ключ текущего тикета в этом чате (по умолчанию из ветки)")
+    args = parser.parse_args()
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from collect import git_value, local_cards
+    path = args.output if args.legacy_output else args.snapshot
+    output = args.legacy_output or args.output
+    snapshot = json.loads(path.read_text(encoding="utf-8"))
+    portfolio, issues = snapshot["portfolio"], snapshot["issues"]
+    keys = [issue["key"] for issue in [portfolio] + issues]
+    if len(set(keys)) != len(keys) or not all(keys):
+        parser.error("Каждому тикету нужен свой непустой ключ")
+    if args.legacy_output:
+        snapshot["tasks_root"] = str(args.snapshot.expanduser().resolve())
+        cards = local_cards(args.snapshot.expanduser(), keys)
+        for record in [portfolio, *issues]:
+            record["cards"] = cards[record["key"]]
+    if args.prs:
+        prs = json.loads(args.prs.read_text(encoding="utf-8"))
+        for record in [portfolio, *issues]:
+            if record["key"] in prs:
+                record["prs"] = prs[record["key"]]
+    current = args.current
+    if current is None:
+        branch = git_value("branch", "--show-current")
+        current = next((key for key in keys if re.search(r"(?<![A-Za-z0-9])" + re.escape(key) + r"(?![A-Za-z0-9])", branch)), None)
+    render(snapshot, output, current)
+
+
+if __name__ == "__main__":
+    main()

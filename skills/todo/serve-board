@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+"""Serve a generated HTML board and its board-assets on a loopback URL."""
+
+import argparse
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import quote
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("board", type=Path, help="path to the generated HTML file")
+args = parser.parse_args()
+board = args.board.expanduser().resolve()
+if not board.is_file() or board.suffix.lower() != ".html":
+    parser.error(f"expected an HTML file: {board}")
+assets = board.parent / "board-assets"
+
+
+class BoardHandler(SimpleHTTPRequestHandler):
+    def send_head(self):
+        path = Path(self.translate_path(self.path))
+        if path == board or (path.is_relative_to(assets) and path.resolve() == path and path.is_file()):
+            return super().send_head()
+        self.send_error(404)
+        return None
+
+
+handler = partial(BoardHandler, directory=str(board.parent))
+with ThreadingHTTPServer(("127.0.0.1", 0), handler) as server:
+    print(f"http://127.0.0.1:{server.server_port}/{quote(board.name)}", flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass

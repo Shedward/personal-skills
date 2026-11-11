@@ -75,4 +75,6 @@ curl -fsSL https://raw.githubusercontent.com/Shedward/personal-skills/main/insta
 `critics`, `troubleshoot`, `critics-rewrite` используют сабагентов, если они
 доступны. В Codex агенты разделяют файловую систему: для переписывания
 нужны отдельные git worktree. Без сабагентов скилл сообщает об ограничении.
-Доска `todo` использует Python 3 и Plannotator (устанавливается отдельно).
+Доски `todo` и `portfolio` используют Python 3. В Codex Desktop их можно
+открыть во встроенном браузере с комментариями. Для просмотра из CLI
+установите Plannotator.

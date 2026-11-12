@@ -107,8 +107,9 @@ def render(snapshot, output, current, branch_key=None, views=None):
             views["issue-" + record["key"]] = record
             views.update(("view-" + card["id"], card) for card in record["cards"])
         return (f'<details class="ticket {tone}" data-key="{key}"{" open" if expanded else ""}>'
-                f'<summary class="ticket-head"{branch_hint}><button class="issue-title" type="button" data-view="issue-{key}">'
-                f'<span class="key">{key}</span> {escape(record["title"])}</button>{counters(records if parent else [record])}'
+                f'<summary class="ticket-head"{branch_hint}><span class="ticket-name">{ui.copy_key(record["key"], "key")}'
+                f'<button class="issue-title" type="button" data-view="issue-{key}">{escape(record["title"])}</button>'
+                f'</span>{counters(records if parent else [record])}'
                 f'<span class="state">{escape(record["status"])}</span><span class="arrow"></span></summary>'
                 f'<div class="ticket-body">{content}</div></details>')
 

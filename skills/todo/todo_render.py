@@ -9,8 +9,7 @@ import zlib
 
 from todo_cards import CLOSED, active_worker, blocker, score
 
-grade = {"effort": {"low": "good", "medium": "mid", "high": "bad"},
-         "impact": {"low": "bad", "medium": "mid", "high": "good"}}
+PRIORITY_LABELS = {-2: "Very low", -1: "Low", 0: "Normal", 1: "High", 2: "Very high"}
 LANES = ("open", "in-progress", "waiting", "closed")
 labels = {"user": "От тебя", "agent": "Агент"}
 CLOSE_BUTTON = '<button class="close" type="button" aria-label="Закрыть">×</button>'
@@ -50,31 +49,11 @@ def card_body(path, attachments):
     return attach_body(body, path.parent, attachments)
 
 
-def level(axis, t):
-    value = t.get(axis, "?")
-    return f'<span class="cell solid {axis} {grade[axis].get(value, "unknown")}">{value[:1].upper()}</span>'
-
-
-def chevron(v, tone):
-    if v is None:
-        marks = ""
-    elif v == 0:
-        marks = '<line x1="4" y1="8" x2="12" y2="8"/>'
-    else:
-        top = (16 - (3 + 4 * (abs(v) - 1))) / 2
-        edge, tip = (3, 0) if v > 0 else (0, 3)
-        marks = "".join(
-            f'<polyline points="4,{y + edge} 8,{y + tip} 12,{y + edge}"/>'
-            for y in (top + 4 * i for i in range(abs(v))))
-    return f'<svg class="chevron solid {tone}" viewBox="0 0 16 16" width="16" height="16">{marks}</svg>'
-
-
 def worth(t):
-    v = t["value"]
-    tone = "unknown" if v is None else "good" if v > 0 else "mid" if v == 0 else "bad"
-    hint = f'effort {t.get("effort", "?")} · impact {t.get("impact", "?")} · ценность {"?" if v is None else v}'
-    return (f'<span class="worth" title="{html.escape(hint)}">{chevron(v, tone)}'
-            f'{level("effort", t)}{level("impact", t)}</span>')
+    value = t["value"] if t["value"] is not None else "?"
+    label = PRIORITY_LABELS.get(value, "?")
+    hint = f'effort {t.get("effort", "?")} · impact {t.get("impact", "?")} · ценность {value}'
+    return f'<span class="worth" data-value="{value}" title="{html.escape(hint)}">{label}</span>'
 
 
 telegram_hues = (25, 60, 300, 145, 200, 255, 350)
@@ -100,12 +79,17 @@ def status_count(items, css_class, label):
             f'{len(items)}{suffix}</span>')
 
 
+def copy_key(value, css_class=""):
+    key = html.escape(value)
+    return (f'<button type="button" data-copy class="{css_class}" title="Нажми, чтобы скопировать" '
+            f'aria-label="Скопировать {key}">{key}</button>')
+
+
 def card(t, open_ids, open_anywhere):
     e = html.escape
     title = re.sub(r"`([^`]+)`", r"<code>\1</code>", e(t["title"]))
     rows = [f'<div class="top"><span class="ref"><span class="n">[{t["n"]}]</span>'
-            f'<span class="id" title="Нажми, чтобы скопировать" '
-            f'onclick="navigator.clipboard.writeText(this.textContent)">{e(t["id"])}</span></span>'
+            f'{copy_key(t["id"], "id")}</span>'
             f'<span class="type tinted {e(t.get("type", ""))}">{e(t.get("type", "?"))}</span></div>',
             f'<button type="button" class="title" data-view="view-{e(t["id"])}">{title}</button>']
     if t.get("status") in CLOSED:
@@ -244,6 +228,12 @@ let viewFor = id => document.getElementById(id);
 function triggerFor(id) { return document.querySelector('[data-view="' + CSS.escape(id) + '"]'); }
 function closeViews() { document.querySelectorAll(".view[open]").forEach(d => d.close()); }
 document.addEventListener("click", e => {
+    const copy = e.target.closest("[data-copy]");
+    if (copy) {
+        e.preventDefault();
+        navigator.clipboard.writeText(copy.textContent);
+        return;
+    }
     const close = e.target.closest(".view .close");
     if (close) { close.closest("dialog").close(); return; }
     const dep = e.target.closest("a.dep");

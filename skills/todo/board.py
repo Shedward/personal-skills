@@ -1,11 +1,18 @@
 from itertools import count
 import html
 from pathlib import Path
+import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import todo_render as ui
 from todo_cards import group_dirs, read_card
+
+
+def group_label(group):
+    match = re.search(r"(?:^|[-/])([A-Z][A-Z0-9_]*-\d+)$", group)
+    name = match[1] if match else Path(group).name
+    return html.escape(group.removesuffix(name)) + ui.copy_key(name)
 
 
 def render(tasks_dir, output, group=None, opened=None, views=None):
@@ -44,7 +51,7 @@ def render(tasks_dir, output, group=None, opened=None, views=None):
         members = by_dir[d]
         left = [t for t in members if ui.lane(t) != "closed"]
         ready = '<span class="ready tinted">готово к ревью</span>' if members and not left else ""
-        return (f'<div class="group"><span class="group-name">{html.escape(d.name)}</span>'
+        return (f'<div class="group"><span class="group-name">{group_label(d.name)}</span>'
                 f'<span class="group-count">{ui.status_count(left, "open-total", "Открыто")} открыто · '
                 f'{len(members) - len(left)} закрыто</span>{ready}</div>')
 
@@ -55,7 +62,7 @@ def render(tasks_dir, output, group=None, opened=None, views=None):
 <style>{ui.style()}
 {ui.hover_rules(open_ids, scope)}
 </style></head><body>
-<h1>{heading}</h1>
+<h1>{group_label(group) if group else "Беклог"} — {html.escape(tasks_dir.parent.name)}</h1>
 {groups_strip}
 <div class="layout"><div class="board">{board}</div>{dialogs}</div>
 <div class="general" id="general-comment" onclick="this.classList.add('hint'); setTimeout(() => this.classList.remove('hint'), 2500)">💬 Для общих комментариев</div>

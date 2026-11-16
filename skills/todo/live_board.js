@@ -3,6 +3,19 @@
   let lastMarkup = root.innerHTML;
   let request = 0;
 
+  root.addEventListener('click', async event => {
+    const link = event.target.closest('a.jira-link');
+    if (!link) return;
+    event.preventDefault();
+    try {
+      const key = link.closest('.ticket').dataset.key;
+      const response = await fetch('/open-jira?key=' + encodeURIComponent(key), {method: 'POST'});
+      if (!response.ok) throw Error(response.status);
+    } catch {
+      window.prompt('Не удалось открыть системный браузер. Скопируй ссылку на Jira:', link.href);
+    }
+  });
+
   viewFor = id => {
     let panel = document.getElementById(id);
     if (!panel) {

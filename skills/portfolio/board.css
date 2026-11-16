@@ -33,6 +33,8 @@ body { padding: 20px clamp(12px, 3vw, 42px) 48px }
   cursor: pointer; font: 600 14px/1.4 var(--font-sans); overflow-wrap: anywhere }
 .parent .issue-title { font-size: 17px }
 .issue-title:hover { text-decoration: underline; text-underline-offset: 3px }
+.jira-link { flex: none; padding: 2px 4px; color: var(--muted-foreground); font-size: 11px; white-space: nowrap }
+.jira-link:hover, .jira-link:focus-visible { color: var(--primary) }
 .key { color: var(--muted-foreground); font: 500 11px var(--font-mono); white-space: nowrap }
 .ticket-head[aria-current="true"] .key { color: var(--primary); font-weight: 600 }
 .counters { display: inline-grid; grid-template-columns: repeat(4, minmax(24px, auto)); gap: 4px }

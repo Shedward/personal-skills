@@ -16,6 +16,7 @@ import sys
 from threading import Condition, Event, Lock, Thread
 from time import time_ns
 from urllib.parse import parse_qs, urlsplit
+import webbrowser
 
 SKILLS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILLS))
@@ -93,6 +94,27 @@ class LiveBoard:
 
 
 class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        host = f"127.0.0.1:{self.server.server_port}"
+        if self.headers.get("Host") != host or self.headers.get("Origin") != f"http://{host}":
+            self.send_error(403)
+            return
+        request = urlsplit(self.path)
+        if request.path != "/open-jira":
+            self.send_error(404)
+            return
+        key = parse_qs(request.query).get("key", [""])[0]
+        issue = self.server.board.views.get("issue-" + key)
+        url = portfolio.jira_url(issue) if issue else ""
+        if not url:
+            self.send_error(404)
+            return
+        if not webbrowser.open_new_tab(url):
+            self.send_error(503, "Browser unavailable")
+            return
+        self.send_response(204)
+        self.end_headers()
+
     def events(self, query):
         board = self.server.board
         seen = self.headers.get("Last-Event-ID") or query.get("since", [""])[0]

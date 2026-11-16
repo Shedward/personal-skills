@@ -30,6 +30,14 @@ def link(label, url):
     return escape(label)
 
 
+def jira_url(issue):
+    url = issue.get("url") or ""
+    parts = urlsplit(url)
+    if parts.scheme in {"https", "http"} and parts.hostname and parts.path.endswith("/browse/" + issue["key"]):
+        return url
+    return ""
+
+
 def issue_dialog(issue):
     key = escape(issue["key"])
     description = issue.get("description")
@@ -89,6 +97,9 @@ def render(snapshot, output, current, branch_key=None, views=None):
 
     def row(record, tone, parent=False):
         key = escape(record["key"])
+        url = jira_url(record)
+        jira = (f'<a class="jira-link" href="{escape(url, quote=True)}" target="_blank" rel="noopener noreferrer" '
+                f'aria-label="Открыть {key} в Jira" title="Открыть {key} в Jira">Jira ↗</a>') if url else ""
         expanded = record["key"] == current
         branch_hint = ' aria-current="true" aria-description="Текущая ветка"' if record["key"] == branch_key else ''
         own = lanes[record["key"]]
@@ -109,7 +120,7 @@ def render(snapshot, output, current, branch_key=None, views=None):
         return (f'<details class="ticket {tone}" data-key="{key}"{" open" if expanded else ""}>'
                 f'<summary class="ticket-head"{branch_hint}><span class="ticket-name">{ui.copy_key(record["key"], "key")}'
                 f'<button class="issue-title" type="button" data-view="issue-{key}">{escape(record["title"])}</button>'
-                f'</span>{counters(records if parent else [record])}'
+                f'{jira}</span>{counters(records if parent else [record])}'
                 f'<span class="state">{escape(record["status"])}</span><span class="arrow"></span></summary>'
                 f'<div class="ticket-body">{content}</div></details>')
 

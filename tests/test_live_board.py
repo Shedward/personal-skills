@@ -1,14 +1,54 @@
 import json
+from http.client import HTTPConnection
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 import sys
 import tempfile
+from threading import Thread
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "skills"))
-from todo.live_board import LiveBoard
+from todo.live_board import Handler, LiveBoard
 
 
 class LiveBoardTest(unittest.TestCase):
+    def test_jira_header_opens_only_a_known_ticket_from_the_board(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshot = root / "portfolio.json"
+            issue = {"key": "APP-2", "title": "Экран", "status": "Open", "url": "https://jira.example/browse/APP-2"}
+            snapshot.write_text(json.dumps({"portfolio": {"key": "PLAN-1", "title": "Портфель", "status": "Open"},
+                                            "issues": [issue]}))
+            board = LiveBoard(root, snapshot)
+            page = board.page()
+            self.assertEqual(page.count('class="jira-link"'), 1)
+            self.assertIn('href="https://jira.example/browse/APP-2"', page)
+            self.assertIn('data-view="issue-APP-2"', page)
+            with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+                server.board = board
+                thread = Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                origin = f"http://127.0.0.1:{server.server_port}"
+
+                def click(key, source):
+                    connection = HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+                    try:
+                        connection.request("POST", "/open-jira?key=" + key, headers={"Origin": source})
+                        return connection.getresponse().status
+                    finally:
+                        connection.close()
+
+                try:
+                    with patch("todo.live_board.webbrowser.open_new_tab", return_value=True) as browser:
+                        self.assertEqual(click("APP-2", origin), 204)
+                        self.assertEqual(click("APP-2", "https://other.example"), 403)
+                        self.assertEqual(click("APP-3", origin), 404)
+                        browser.assert_called_once_with(issue["url"])
+                finally:
+                    server.shutdown()
+                    thread.join()
+
     def test_archived_group_keeps_card_details_and_frontmatter_out_of_body(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
